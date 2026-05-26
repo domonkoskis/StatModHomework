@@ -120,15 +120,28 @@ selected_cols_cat <- c(var_ratio_df[1:3,1])
 final_df <- df_non_null[,c(selected_cols_num,selected_cols_cat)]
 final_df$SalePrice <- df$SalePrice
 
+#------------------------------------------------------------------------------
+# Creating the Neighbourhood_simple colum
+# Making the Neighbourhood variable simpler -> less categories
+# Now its 27, almost unimpretable
+final_df$Neighborhood_simple <- as.character(final_df$Neighborhood)
 
+counts <- table(final_df$Neighborhood)
+# We put those hoods where the obervations are less than a 100 (~3% of the set)
+rare_neighborhoods <- names(counts[counts < 100])
+final_df$Neighborhood_simple[final_df$Neighborhood_simple 
+                             %in% rare_neighborhoods] <- "Other"
+
+table(final_df$Neighborhood_simple)
+# cut down to 14 categories
 #------------------------------------------------------------------------------
 
 # Analysing the heteroscedascity of the selected variables
 # 1. Fit baseline model
-final_df <- subset(final_df, Neighborhood != "Landmrk" & Kitchen.Qual != "Po")
+final_df <- subset(final_df, Kitchen.Qual != "Po")
 heteroskedascity_model <- lm(SalePrice ~ Overall.Qual +Gr.Liv.Area + X1st.Flr.SF
                               +Year.Built + Full.Bath +Year.Remod.Add + 
-                               Neighborhood +Exter.Qual + Kitchen.Qual,
+                               Neighborhood_simple +Exter.Qual + Kitchen.Qual,
                               data = final_df)
 
 final_df$sq_Errors <-  heteroskedascity_model$residuals^2                          
@@ -178,7 +191,7 @@ elements_of_omega <- exp(fitted(helper_gls))
 
 base_model_gls <- lm(SalePrice ~ Overall.Qual +Gr.Liv.Area + X1st.Flr.SF
                      +Year.Built + Full.Bath +Year.Remod.Add + 
-                       Neighborhood +Exter.Qual + Kitchen.Qual, 
+                       Neighborhood_simple +Exter.Qual + Kitchen.Qual, 
                      weights = 1/elements_of_omega,data = final_df)
 summary(base_model_gls)
 #p value is 2.2e^-16
@@ -189,7 +202,7 @@ ggplot(final_df, aes(x = log(SalePrice))) + geom_histogram()
 
 heteroskedascity_model_log <- lm(log(SalePrice) ~ Overall.Qual +Gr.Liv.Area + X1st.Flr.SF
                              +Year.Built + Full.Bath +Year.Remod.Add + 
-                               Neighborhood +Exter.Qual + Kitchen.Qual,
+                               Neighborhood_simple +Exter.Qual + Kitchen.Qual,
                              data = final_df)
 
 white_basic_log <- white(heteroskedascity_model_log, interactions = FALSE)
@@ -232,13 +245,13 @@ print(vif_outputs)
 
 #Convert categorical variables to factor so R handles dummy encoding
 #automatically reference category is dropped
-final_df$Neighborhood <- as.factor(final_df$Neighborhood)
+final_df$Neighborhood_simple <- as.factor(final_df$Neighborhood_simple)
 final_df$Exter.Qual   <- as.factor(final_df$Exter.Qual)
 final_df$Kitchen.Qual <- as.factor(final_df$Kitchen.Qual)
 
 #Model1 - Additive baseline (no interaction)
 first_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
-                    Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
+                    Year.Built + Full.Bath + Year.Remod.Add + Neighborhood_simple + 
                     Exter.Qual + Kitchen.Qual, data = final_df)
 
 summary(first_model)
@@ -250,12 +263,12 @@ plot_model(first_model, type = "pred", terms = c("Overall.Qual", "Exter.Qual"))
 
 #Model2 - Interaction model (Neighborhood * Gr.Liv.Area)
 second_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
-                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
-                     Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area,data = final_df)
+                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood_simple + 
+                     Exter.Qual + Kitchen.Qual + Neighborhood_simple * Gr.Liv.Area,data = final_df)
 
 summary(second_model)
                         
-ggplot(final_df, aes(x = Gr.Liv.Area, y = SalePrice, color = Neighborhood)) +
+ggplot(final_df, aes(x = Gr.Liv.Area, y = SalePrice, color = Neighborhood_simple)) +
   geom_point() + geom_smooth(method = "lm")
                         
 #Lines are now not paralell, the slope of Neighborhood differs by group
@@ -271,8 +284,8 @@ hist(final_df$X1st.Flr.SF)
 
 
 third_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
-                            Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
-                            Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area,data = final_df)
+                            Year.Built + Full.Bath + Year.Remod.Add + Neighborhood_simple + 
+                            Exter.Qual + Kitchen.Qual + Neighborhood_simple * Gr.Liv.Area,data = final_df)
 summary(third_model)
 
 ggplot(final_df, aes(x = log(Gr.Liv.Area), y = log(SalePrice))) +
@@ -284,21 +297,21 @@ ggplot(final_df, aes(x = log(X1st.Flr.SF), y = log(SalePrice))) +
 
 third_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) +
                                log(X1st.Flr.SF) + Year.Built + Full.Bath +
-                               Year.Remod.Add + Neighborhood + Exter.Qual + 
+                               Year.Remod.Add + Neighborhood_simple + Exter.Qual + 
                                Kitchen.Qual, data = final_df)
 summary(third_model)
 
 third_model_squared <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
-                    Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
-                    Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
+                    Year.Built + Full.Bath + Year.Remod.Add + Neighborhood_simple + 
+                    Exter.Qual + Kitchen.Qual + Neighborhood_simple * Gr.Liv.Area +
                     I(log(Gr.Liv.Area)^2) + I(log(X1st.Flr.SF)^2),data = final_df)
 summary(third_model_squared)
 
 #Model4 - Squared terms
 
 fourth_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
-                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
-                     Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
+                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood_simple + 
+                     Exter.Qual + Kitchen.Qual + Neighborhood_simple * Gr.Liv.Area +
                      I(log(Gr.Liv.Area)^2) + I(log(X1st.Flr.SF)^2) +
                      I(Year.Built^2) + I(Year.Remod.Add^2),data = final_df)
 #
