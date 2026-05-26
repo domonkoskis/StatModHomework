@@ -237,41 +237,29 @@ final_df$Exter.Qual   <- as.factor(final_df$Exter.Qual)
 final_df$Kitchen.Qual <- as.factor(final_df$Kitchen.Qual)
 
 #Model1 - Additive baseline (no interaction)
-# Assumes the effect of every predictor on SalePrice is INDEPENDENT of all
-# others. Dummy encoding of Exter.Qual and Kitchen.Qual only shifts the
-# intercept -> parallel predicted lines across quality groups
 first_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
                     Exter.Qual + Kitchen.Qual, data = final_df)
 
 summary(first_model)
-#all predictors significant at 1% except Full.Bath at 5%
-#Example interpretation: Overall.Qual: B = 13,710 -> cet. par., one extra
-#quality point predicts a $13,710 higher SalePrice
-#R2 = 0.8415, Adj R2 = 0.8394 -> the model explains ~84% of price variability
 
 library(sjPlot)
 plot_model(first_model, type = "pred", terms = c("Overall.Qual", "Exter.Qual"))
 #All lines are parallel so each Exter.Qual group has the same slope for
 #Overall.Qual, only the intercept differs between groups
-#The gap between lines = the Exter.Qual dummy coefficient (ceteris paribus effect)
 
-#Model2 - Interaction model (Overall.Qual * Exter.Qual)
-#The interaction terms allow each Exter.Qual group to have its OWN slope for Overall.Qual
-#This adds 3 extra parameters (one per non-reference category)
-second_model <- lm(SalePrice ~ Overall.Qual * Exter.Qual + Gr.Liv.Area + X1st.Flr.SF +
-                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood +
-                     Kitchen.Qual, data = final_df)
+#Model2 - Interaction model (Neighborhood * Gr.Liv.Area)
+second_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
+                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
+                     Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area,data = final_df)
 
 summary(second_model)
-#Overall.Qual (base, ref = Ex): B = 27,600 -> each quality point adds $27,600
-#for Excellent exterior houses, cet. par.
-
-plot_model(second_model, type = "pred", terms = c("Overall.Qual", "Exter.Qual"))
-#Lines are now not paralell, the slope of Overall.Qual differs by group
-#Excellent has the steepest slope, each quality point adds the most
-#value when the exterior is excellent
-#Lines cross around Overall.Qual = 4-5: at low quality, ranking reverses
+                        
+ggplot(final_df, aes(x = Gr.Liv.Area, y = SalePrice, color = Neighborhood)) +
+  geom_point() + geom_smooth(method = "lm")
+                        
+#Lines are now not paralell, the slope of Neighborhood differs by group
+                        
 
 #Model3 - Log-Log model
 
@@ -280,42 +268,40 @@ hist(final_df$Gr.Liv.Area)
 hist(final_df$X1st.Flr.SF)
 #histogram of SalePrice and numerical predictors (Gr.Liv.Area, X1st.Flr.SF) show long right tails
 
+
+
+third_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
+                            Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
+                            Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area,data = final_df)
+summary(third_model)
+
 ggplot(final_df, aes(x = log(Gr.Liv.Area), y = log(SalePrice))) +
+  geom_point() + geom_smooth(method = lm) + geom_smooth(color = 'red')
+
+ggplot(final_df, aes(x = log(X1st.Flr.SF), y = log(SalePrice))) +
   geom_point() + geom_smooth(method = lm) + geom_smooth(color = 'red')
 #parabolic effect
 
-third_model_squared <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) +
-                    I(log(Gr.Liv.Area)^2) +        # captures the curvature
-                    log(X1st.Flr.SF) + Year.Built + Full.Bath + Year.Remod.Add + Neighborhood +
-                    Exter.Qual + Kitchen.Qual, data = final_df)
-summary(third_model_squared)
-
-#Confirm the squared term is needed
 third_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) +
                                log(X1st.Flr.SF) + Year.Built + Full.Bath +
                                Year.Remod.Add + Neighborhood + Exter.Qual + 
                                Kitchen.Qual, data = final_df)
 summary(third_model)
 
-anova(third_model_squared, third_model)
-#p = 0.324 -> fail to reject H0 at any common significance level
-#We do not need the parabolic term
+third_model_squared <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
+                    Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
+                    Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
+                    I(log(Gr.Liv.Area)^2) + I(log(X1st.Flr.SF)^2),data = final_df)
+summary(third_model_squared)
 
-#Overall.Qual: B = 0.0876 -> exp(0.0876) = 1.0916
-# Each extra quality point multiplies predicted SalePrice by 1.09
+#Model4 - Squared terms
 
-#Model4 - Log-Lin model (log Y, linear predictors + squared age-like term)
-# Visualise potential parabolic effect of Year.Built
-ggplot(final_df, aes(x = Year.Built, y = log(SalePrice))) +
-  geom_point() +  geom_smooth(method = lm) +  geom_smooth(color = "red") 
-
-fourth_model <- lm(log(SalePrice) ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
-                     Year.Built + I(Year.Built^2) + Full.Bath +
-                     Year.Remod.Add + Neighborhood + Exter.Qual + Kitchen.Qual,
-                   data = final_df)
-summary(fourth_model)
-#Overall.Qual: B = 0.0975 --> exp(0.0975) = 1.102
-#Each extra quality point -> predicted SalePrice ~10.2% higher, cet. par.
+fourth_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
+                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
+                     Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
+                     I(log(Gr.Liv.Area)^2) + I(log(X1st.Flr.SF)^2) +
+                     I(Year.Built^2) + I(Year.Remod.Add^2),data = final_df)
+#
 
 #-------------------------------------------------------------------------------
 #Comparing the models
