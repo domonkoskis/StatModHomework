@@ -123,13 +123,34 @@ selected_cols_cat <- c(var_ratio_df[1:3,1])
 final_df <- df_non_null[,c(selected_cols_num,selected_cols_cat)]
 final_df$SalePrice <- df$SalePrice
 
+# has only 1 observations
+final_df <- subset(final_df, Kitchen.Qual != "Po")
+
+#-----------------------------------------------------------------------------------------
+# NEIGBOURHOOD_SIMPLE
+
+# Creating the Neighbourhood_simple colum
+# Making the Neighbourhood variable simpler -> less categories
+# Now its 27, almost unimpretable
+final_df$Neighborhood_simple <- as.character(final_df$Neighborhood)
+
+counts <- table(final_df$Neighborhood)
+# We put those hoods where the obervations are less than a 100 (~3% of the set)
+rare_neighborhoods <- names(counts[counts < 100])
+final_df$Neighborhood_simple[final_df$Neighborhood_simple 
+                             %in% rare_neighborhoods] <- "Other"
+
+table(final_df$Neighborhood_simple)
+# cut down to 14 categories
+
+final_df$Neighborhood <- final_df$Neighborhood_simple
+final_df$Neighborhood <- relevel(as.factor(final_df$Neighborhood), ref="Other")
 
 #------------------------------------------------------------------------------
 # HETEROSKEDASTICITY
 # Analysing the heteroscedascity of the selected variables
 # 1. Fit baseline model
-# has only 1 observations
-final_df <- subset(final_df, Neighborhood != "Landmrk" & Kitchen.Qual != "Po")
+
 heteroskedasticity_model <- lm(SalePrice ~ Overall.Qual +Gr.Liv.Area + X1st.Flr.SF
                               +Year.Built + Full.Bath +Year.Remod.Add + 
                                Neighborhood +Exter.Qual + Kitchen.Qual,
@@ -172,7 +193,7 @@ heteroskedasticity_model_log <- lm(log(SalePrice) ~ Overall.Qual + Gr.Liv.Area +
                              data = final_df)
 
 final_df$sq_Errors <-  heteroskedasticity_model_log$residuals^2                          
-ggplot(final_df, aes(x = log(SalePrice), y =sq_Errors)) + geom_point() + stat_smooth()
+ggplot(final_df, aes(x = log(SalePrice), y =sq_Errors)) + geom_point() + stat_smooth() +
 labs(title="Residuals vs SalePrice", 
      x="SalePrice", y="Squared Residuals")
 
@@ -182,12 +203,7 @@ print(paste("Log Model White Test P-value:", white_log$p.value))
 # Reason of this is the large sample size and therefore the white test
 # find uneven variance which casue the low p value
 # LOG TRANSFORMATION DOES NOT SOLVE THE ISSUE
-# only mitigating it
-
-year_model <- lm(log(SalePrice) ~ Year.Built + I(Year.Built^2), data=final_df)
-summary(year_model)
-ggplot(final_df, aes(x=Year.Built, y=log(SalePrice))) + geom_point() +
-  stat_function(fun=function(x) 3.836e+02 + (-3.872e-01)*x + 1.008e-04*x^2, col="red")
+# only improving it
 
 #-------------------------------------------------------------------------------
 # MULTICOLLINEARITY
@@ -203,29 +219,6 @@ print(vif_outputs)
 # Year built column has multicollinearity over 5 which still not too large to
 # considering as a potential drop
 
-
-#-----------------------------------------------------------------------------------------
-# NEIGBOURHOOD_SIMPLE
-
-# Creating the Neighbourhood_simple colum
-# Making the Neighbourhood variable simpler -> less categories
-# Now its 27, almost unimpretable
-final_df$Neighborhood_simple <- as.character(final_df$Neighborhood)
-
-counts <- table(final_df$Neighborhood)
-# We put those hoods where the obervations are less than a 100 (~3% of the set)
-rare_neighborhoods <- names(counts[counts < 100])
-final_df$Neighborhood_simple[final_df$Neighborhood_simple 
-                             %in% rare_neighborhoods] <- "Other"
-
-table(final_df$Neighborhood_simple)
-# cut down to 14 categories
-
-final_df$Neighborhood <- relevel(as.factor(final_df$Neighborhood), ref="Other")
-neighborhood_model <- lm(SalePrice)
-
-final_df$Neighborhood <- final_df$Neighborhood_simple
-
 #-------------------------------------------------------------------------------------------------
 # MODEL BUILDING
 
@@ -235,24 +228,23 @@ final_df$Neighborhood <- relevel(as.factor(final_df$Neighborhood), ref="Other")
 final_df$Exter.Qual   <- as.factor(final_df$Exter.Qual)
 final_df$Kitchen.Qual <- as.factor(final_df$Kitchen.Qual)
 
-# The question of Overall.Quality is interval or ordinal scale:
-
 #Model1 - Additive baseline (no interaction)
 first_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
                     Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
                     Exter.Qual + Kitchen.Qual, data = final_df)
 
 summary(first_model)
+coeftest(first_model, vcov=sandwich::vcovHC(first_model, type = "HC3"))
 
-library(sjPlot)
-plot_model(first_model, type = "pred", terms = c("Overall.Qual", "Exter.Qual"))
-#All lines are parallel so each Exter.Qual group has the same slope for
-#Overall.Qual, only the intercept differs between groups
+ggplot(final_df, aes(x = Gr.Liv.Area, y = SalePrice, color = Neighborhood)) +
+  geom_point() + geom_smooth(method = "lm")
 
 #Model2 - Interaction model (Neighborhood * Gr.Liv.Area)
 second_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
                      Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
                      Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area,data = final_df)
+
+lmtest::waldtest(first_model, second_model, vcov=sandwich::vcovHC(second_model, type = "HC3"))
 
 final_df$fitted_sq <- fitted(second_model)^2
 final_df$fitted_cb <- fitted(second_model)^3
@@ -261,21 +253,13 @@ second_model_reset <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
                            Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
                            Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
                            fitted_sq + fitted_cb ,data = final_df)
-
 lmtest::waldtest(second_model, second_model_reset, vcov=sandwich::vcovHC(second_model_reset, type="HC3"))
-lmtest::waldtest(first_model, second_model, vcov=hccm(second_model))
 
 summary(second_model)
-coeftest(first_model, vcov=hccm(first_model))
 coeftest(second_model, vcov=hccm(second_model))
-                        
-ggplot(final_df, aes(x = Gr.Liv.Area, y = SalePrice, color = Neighborhood)) +
-  geom_point() + geom_smooth(method = "lm")
-                        
 
 plot_model(second_model, type = "pred", terms = c("Gr.Liv.Area", "Neighborhood"))
-#Lines are now not parallell, the slope of Neighborhood differs by group
-
+#Lines are now not parallel, the slope of Neighborhood differs by group
 
 #Model3 - Log-Log model
 
@@ -288,6 +272,7 @@ third_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Fl
                             Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
                             Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area,data = final_df)
 summary(third_model)
+coeftest(third_model, vcov=sandwich::vcovHC(third_model, type = "HC3"))
 
 final_df$fitted_sq <- fitted(third_model)^2
 final_df$fitted_cb <- fitted(third_model)^3
@@ -299,18 +284,15 @@ third_model_reset <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X
 lmtest::waldtest(third_model, third_model_reset, vcov=sandwich::vcovHC(third_model_reset, type = "HC3"))
 
 
-#Model4 - Squared terms
+#Model4 - Squared term
 
 fourth_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
                      Year.Built + Full.Bath + Year.Remod.Add + Neighborhood + 
                      Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
                      I(Year.Built^2),data = final_df)
-summary(third_model)
-summary(fourth_model)
+coeftest(fourth_model, vcov=sandwich::vcovHC(fourth_model, type = "HC3"))
 lmtest::waldtest(fourth_model, third_model, vcov=sandwich::vcovHC(fourth_model, type = "HC3"))
 
-resettest(third_model)
-resettest(fourth_model)
 
 final_df$fitted_sq <- fitted(fourth_model)^2
 final_df$fitted_cb <- fitted(fourth_model)^3
@@ -322,14 +304,6 @@ fourth_reset_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(
 lmtest::waldtest(fourth_reset_model, fourth_model, vcov=sandwich::vcovHC(fourth_reset_model, type = "HC3"))
 #
 
-fifth_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
-                    Year.Built + Year.Remod.Add + Neighborhood + 
-                    Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
-                    I(Year.Built^2),data = final_df)
-
-coeftest(fourth_model, vcov=sandwich::vcovHC(fourth_model, type="HC3"))
-
-final_df$Neighborhood <- final_df$Neighborhood_simple
 final_df$Neighborhood_new <- relevel(as.factor(
   ifelse(as.character(final_df$Neighborhood) %in% c("Somerst", "NridgHt"), "Other", 
          as.character(final_df$Neighborhood))
@@ -340,10 +314,9 @@ fifth_model <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Fl
                     Year.Built + Year.Remod.Add + Neighborhood + 
                     Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
                     I(Year.Built^2),data = final_df)
-
+coeftest(fifth_model, vcov=sandwich::vcovHC(fifth_model, type="HC3"))
 lmtest::waldtest(fifth_model, fourth_model, vcov=sandwich::vcovHC(fourth_model, type="HC3"))
 
-coeftest(fifth_model, vcov=sandwich::vcovHC(fifth_model, type="HC3"))
 
 final_df$QualFactor <- as.factor(final_df$Overall.Qual)
 
@@ -353,83 +326,3 @@ sixth_model <- lm(log(SalePrice) ~ QualFactor + log(Gr.Liv.Area) + log(X1st.Flr.
                     I(Year.Built^2),data = final_df)
 coeftest(sixth_model, vcov=sandwich::vcovHC(sixth_model, type="HC3"))
 
-lmtest::waldtest(sixth_model, fifth_model, vcov=sandwich::vcovHC(sixth_model, type="HC3"))
-
-#-------------------------------------------------------------------------------
-#Comparing the models
-
-#AIC/BIC only comparable within the same response scale:
-#M1 vs M2 (original SalePrice), M3 vs M4 (log SalePrice)
-
-cat("Adj R2")
-cat("M1 Linear:", round(summary(first_model)$adj.r.squared,  4), "\n")
-cat("M2 Interaction:", round(summary(second_model)$adj.r.squared, 4), "\n")
-cat("M3 Log-Log:", round(summary(third_model)$adj.r.squared,  4), "(log scale)\n")
-cat("M4 Log-Lin+sq:", round(summary(fourth_model)$adj.r.squared, 4), "(log scale)\n")
-
-cat("AIC / BIC (M1 vs M2, original scale)")
-print(AIC(first_model, second_model))
-print(BIC(first_model, second_model))
-
-#All three criteria agree: Model2 wins over Model1
-#The interaction between Overall.Qual and Exter.Qual is worth keeping (lower AIC, lower BIC
-#and higher Adj R2) despite spending 3 extra parameters. The Wald test already confirmed this
-#(F = 21.83, p = 0), so the criteria are consistent.
-
-print(cat("AIC / BIC (M3 vs M4, log scale"))
-print(AIC(third_model, fourth_model))
-print(BIC(third_model, fourth_model))
-
-#All three criteria agree: Model3 wins over Model4. M3 is ahead by ~188 AIC points and ~187 BIC points
-#The log-log specification with logged area predictors is clearly the better functional form
-
-#-------------------------------------------------------------------------------
-# Ramsey RESET Test for Model2 and Model3
-
-library(lmtest)
-lmtest::resettest(second_model)
-lmtest::resettest(third_model)
-
-#Both models reject H0, but there is a difference in F-statistics
-#F dropped from 178.83 -> 5.35 by switching from M2 to M3
-#This quantifies exactly how much the log-log transformation improved
-#the functional form specification
-
-
-library(sandwich)
-library(lmtest)
-
-model_num <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
-                  Year.Built + Year.Remod.Add + Neighborhood + 
-                  Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
-                  I(Year.Built^2),data = final_df)
-model_cat <- lm(log(SalePrice) ~ QualFactor + log(Gr.Liv.Area) + log(X1st.Flr.SF) +
-                  Year.Built + Year.Remod.Add + Neighborhood + 
-                  Exter.Qual + Kitchen.Qual + Neighborhood * Gr.Liv.Area +
-                  I(Year.Built^2),data = final_df)
-
-anova(model_cat, model_num)
-coeftest(model_cat, vcov=vcov_rob)[2:10,"Estimate"]
-
-coefdf <- as.data.frame(2:10)
-colnames(coefdf) = c("rating")
-coefdf$coef <- coeftest(model_cat, vcov=vcov_rob)[2:10,"Estimate"]
-ggplot(coefdf, aes(x=rating, y=coef)) + geom_point() + stat_smooth(method=lm)
-
-# --- Ingredients ---
-n       <- nrow(final_df)
-k_r     <- length(coef(model_num))
-k_f     <- length(coef(model_cat))
-q       <- k_f - k_r
-df_resid <- n - k_f
-
-rss_r   <- sum(residuals(model_num)^2)
-rss_f   <- sum(residuals(model_cat)^2)
-
-vcov_rob     <- vcovHC(model_cat, type = "HC3")
-sigma2_robust <- mean(residuals(model_cat)^2 / (1 - hatvalues(model_cat))^2)
-
-ols_sigma2 <- rss_f / df_resid
-f_robust   <- ((rss_r - rss_f) / q) / sigma2_robust
-p_val      <- pf(f_robust, df1 = q, df2 = df_resid, lower.tail = FALSE)
-p_val
