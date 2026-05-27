@@ -225,9 +225,25 @@ print(vif_outputs)
 
 #Convert categorical variables to factor so R handles dummy encoding
 #automatically reference category is dropped
-final_df$Neighborhood <- relevel(as.factor(final_df$Neighborhood), ref="Other")
+final_df$Neighborhood <- as.factor(final_df$Neighborhood)
 final_df$Exter.Qual   <- as.factor(final_df$Exter.Qual)
 final_df$Kitchen.Qual <- as.factor(final_df$Kitchen.Qual)
+
+# setting the reference levels
+# we decided that the lowest levels are the refernce levels
+# for neighborhoods, the one with the lowest sales price on average
+aggregate(SalePrice ~ Neighborhood, data = final_df, FUN = mean) # OldTown
+
+final_df$Neighborhood <- relevel(as.factor(final_df$Neighborhood), ref="OldTown")
+
+# for the quality variables the weakest category is obvious
+table(final_df$Exter.Qual)
+table(final_df$Kitchen.Qual)
+# Ex ~ Excellent   Gd ~ Good  TA ~ Average  Fa ~ Fair
+final_df$Exter.Qual <- relevel(as.factor(final_df$Exter.Qual), ref="Fa")
+final_df$Kitchen.Qual <- relevel(as.factor(final_df$Kitchen.Qual), ref="Fa")
+
+                        
 
 #Model1 - Additive baseline (no interaction)
 first_model <- lm(SalePrice ~ Overall.Qual + Gr.Liv.Area + X1st.Flr.SF +
