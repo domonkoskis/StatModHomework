@@ -109,7 +109,8 @@ for (numeric_var in names(df_numerical)) {
     formula <- as.formula(paste('SalePrice ~', numeric_var))
     model <- lm(formula, data = df_numerical)
     num_df <- rbind(num_df, data.frame(numeric_var, 
-                                       summary(model)$r.squared))
+                                       summary(model)$r.squared),
+                                        summary(model)$coefficients[,4]))
   }
 }
 
